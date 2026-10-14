@@ -104,9 +104,10 @@ function createWindow() {
   // Cargar barra de título personalizada
   mainWindow.loadFile(path.join(__dirname, 'titlebar.html'));
 
-  // Crear vista web con sesión persistente
+  // Crear vista web con sesión persistente y preload de notificaciones
   whatsappView = new WebContentsView({
     webPreferences: {
+      preload: path.join(__dirname, 'whatsapp-preload.js'),
       partition: 'persist:whatsapp',
       contextIsolation: true,
       nodeIntegration: false,
@@ -279,6 +280,28 @@ ipcMain.on('window-resized', (_event, { width, height }) => {
       width: width,
       height: Math.max(0, height - TITLEBAR_HEIGHT)
     });
+  }
+});
+
+// Manejador de notificaciones nativas enviadas por WhatsApp Web
+ipcMain.on('whatsapp-notification', (_event, { title, options }) => {
+  if (Notification.isSupported()) {
+    const notif = new Notification({
+      title: title || 'WhatsApp',
+      body: options && options.body ? options.body : '',
+      icon: path.join(__dirname, '../assets/icon.png'),
+      silent: false
+    });
+
+    notif.on('click', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+
+    notif.show();
   }
 });
 

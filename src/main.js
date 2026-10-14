@@ -142,13 +142,22 @@ function createWindow() {
     return allowedPermissions.includes(permission);
   });
 
-  // Limpiar User-Agent para evitar advertencias de navegador no compatible
-  const defaultUA = whatsappView.webContents.userAgent;
-  const cleanUA = defaultUA
-    .replace(/Electron\/[0-9\.]+\s?/, '')
-    .replace(/whatsapp-desktop\/[0-9\.]+\s?/, '');
-  whatsappView.webContents.setUserAgent(cleanUA);
-  session.setUserAgent(cleanUA);
+  // Configuración de User-Agent y Client Hints para compatibilidad total con WhatsApp Web
+  const CHROME_VERSION = '131.0.0.0';
+  const CHROME_MAJOR = '131';
+  const CHROME_UA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
+
+  whatsappView.webContents.setUserAgent(CHROME_UA);
+  session.setUserAgent(CHROME_UA);
+
+  // Asegurar que las cabeceras sec-ch-ua reflejen Chrome moderno en todas las peticiones
+  session.webRequest.onBeforeSendHeaders((details, callback) => {
+    details.requestHeaders['User-Agent'] = CHROME_UA;
+    details.requestHeaders['sec-ch-ua'] = `"Google Chrome";v="${CHROME_MAJOR}", "Chromium";v="${CHROME_MAJOR}", "Not_A Brand";v="24"`;
+    details.requestHeaders['sec-ch-ua-mobile'] = '?0';
+    details.requestHeaders['sec-ch-ua-platform'] = '"Linux"';
+    callback({ cancel: false, requestHeaders: details.requestHeaders });
+  });
 
   whatsappView.webContents.loadURL(WHATSAPP_URL);
 

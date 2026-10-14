@@ -1,0 +1,67 @@
+{
+  "name": "whatsapp-desktop",
+  "productName": "WhatsApp",
+  "version": "1.0.0",
+  "description": "Cliente de escritorio ligero y elegante para WhatsApp Web",
+  "homepage": "https://github.com/e-slzr/whatsapp-desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/e-slzr/whatsapp-desktop.git"
+  },
+  "author": "Eliu Salazar <eliu.asalazar@gmail.com>",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron . --no-sandbox",
+    "dist": "electron-builder --linux AppImage deb --publish never",
+    "dist:linux": "electron-builder --linux AppImage deb --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:win:zip": "electron-builder --win zip --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:mac:zip": "electron-builder --mac zip --publish never",
+    "dist:all": "electron-builder -mwl --publish never"
+  },
+  "keywords": [
+    "whatsapp",
+    "desktop",
+    "messaging",
+    "chat",
+    "electron"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.7.2",
+    "electron-builder": "^26.4.1"
+  },
+  "build": {
+    "appId": "com.eslzr.whatsapp-desktop",
+    "productName": "WhatsApp",
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "maintainer": "Eliu Salazar <eliu.asalazar@gmail.com>",
+      "category": "Network;InstantMessaging",
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.social-networking",
+      "icon": "assets/icon.icns",
+      "identity": null
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

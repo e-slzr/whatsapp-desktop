@@ -285,23 +285,48 @@ ipcMain.on('window-resized', (_event, { width, height }) => {
 
 // Manejador de notificaciones nativas enviadas por WhatsApp Web
 ipcMain.on('whatsapp-notification', (_event, { title, options }) => {
+  const notifTitle = title || 'WhatsApp';
+  const notifBody = (options && options.body) ? options.body : '';
+  const notifIcon = path.join(__dirname, '../assets/icon.png');
+
+  console.log('[NOTIF RECIBIDA DE WHATSAPP]:', notifTitle, notifBody);
+
+  // 1. Notificación nativa de Electron
   if (Notification.isSupported()) {
-    const notif = new Notification({
-      title: title || 'WhatsApp',
-      body: options && options.body ? options.body : '',
-      icon: path.join(__dirname, '../assets/icon.png'),
-      silent: false
-    });
+    try {
+      const notif = new Notification({
+        title: notifTitle,
+        body: notifBody,
+        icon: notifIcon,
+        silent: false
+      });
 
-    notif.on('click', () => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-      }
-    });
+      notif.on('click', () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      });
 
-    notif.show();
+      notif.show();
+    } catch (err) {
+      console.error('Error al mostrar notificación nativa:', err);
+    }
+  }
+
+  // 2. Puente directo a notify-send en Linux para elementary OS / Pantheon
+  if (process.platform === 'linux') {
+    const { execFile } = require('child_process');
+    execFile('notify-send', [
+      '-a', 'WhatsApp',
+      '-i', notifIcon,
+      '-u', 'normal',
+      notifTitle,
+      notifBody || 'Nuevo mensaje'
+    ], (err) => {
+      if (err) console.error('Error en notify-send:', err);
+    });
   }
 });
 

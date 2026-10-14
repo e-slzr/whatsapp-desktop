@@ -1,61 +1,77 @@
-const { webFrame, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
-// Inyectar en el contexto principal de la página (Main World) antes de los scripts de WhatsApp
+// Exponer puente seguro de notificaciones al contexto principal
+contextBridge.exposeInMainWorld('__electronNotificationBridge', {
+  send: (title, options) => {
+    ipcRenderer.send('whatsapp-notification', { title, options });
+  }
+});
+
+// Inyectar implementación completa de W3C Notification en el Main World
 webFrame.executeJavaScript(`
   (function() {
-    const OriginalNotification = window.Notification;
+    class MockNotification extends EventTarget {
+      constructor(title, options = {}) {
+        super();
+        this.title = title || 'WhatsApp';
+        this.body = options.body || '';
+        this.icon = options.icon || '';
+        this.tag = options.tag || '';
+        this.data = options.data || null;
+        this.onclick = null;
+        this.onshow = null;
+        this.onerror = null;
+        this.onclose = null;
 
-    window.Notification = function(title, options) {
-      window.postMessage({
-        type: 'WA_NOTIFICATION',
-        title: title || 'WhatsApp',
-        options: options || {}
-      }, '*');
-
-      try {
-        if (OriginalNotification) {
-          return new OriginalNotification(title, options);
+        if (window.__electronNotificationBridge && typeof window.__electronNotificationBridge.send === 'function') {
+          window.__electronNotificationBridge.send(this.title, {
+            body: this.body,
+            icon: this.icon,
+            tag: this.tag
+          });
         }
-      } catch (e) {}
-      return {};
-    };
 
-    if (OriginalNotification) {
-      Object.assign(window.Notification, OriginalNotification);
+        setTimeout(() => {
+          if (typeof this.onshow === 'function') this.onshow();
+          this.dispatchEvent(new Event('show'));
+        }, 50);
+      }
+
+      close() {
+        if (typeof this.onclose === 'function') this.onclose();
+        this.dispatchEvent(new Event('close'));
+      }
     }
 
-    // Asegurar que WhatsApp reconozca que las notificaciones están permitidas
-    Object.defineProperty(window.Notification, 'permission', {
+    Object.defineProperty(MockNotification, 'permission', {
       get: () => 'granted',
       set: () => {}
     });
 
-    window.Notification.requestPermission = async () => 'granted';
+    MockNotification.requestPermission = async () => 'granted';
+    MockNotification.maxActions = 2;
 
-    // Interceptar Service Worker showNotification si WhatsApp lo utiliza
+    window.Notification = MockNotification;
+
+    // Interceptar Service Worker showNotification si aplica
     if (typeof ServiceWorkerRegistration !== 'undefined' && ServiceWorkerRegistration.prototype) {
-      const origShowNotification = ServiceWorkerRegistration.prototype.showNotification;
-      ServiceWorkerRegistration.prototype.showNotification = function(title, options) {
-        window.postMessage({
-          type: 'WA_NOTIFICATION',
-          title: title || 'WhatsApp',
-          options: options || {}
-        }, '*');
-        if (origShowNotification) {
-          return origShowNotification.call(this, title, options);
+      ServiceWorkerRegistration.prototype.showNotification = function(title, options = {}) {
+        if (window.__electronNotificationBridge && typeof window.__electronNotificationBridge.send === 'function') {
+          window.__electronNotificationBridge.send(title, options);
         }
         return Promise.resolve();
       };
     }
+
+    // Interceptar navigator.permissions.query para reportar granted
+    if (navigator.permissions && navigator.permissions.query) {
+      const originalQuery = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = async function(parameters) {
+        if (parameters && parameters.name === 'notifications') {
+          return { state: 'granted', onchange: null };
+        }
+        return originalQuery(parameters);
+      };
+    }
   })();
 `);
-
-// Escuchar las notificaciones interceptadas y enviarlas por IPC al proceso principal de Electron
-window.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'WA_NOTIFICATION') {
-    ipcRenderer.send('whatsapp-notification', {
-      title: event.data.title,
-      options: event.data.options
-    });
-  }
-});

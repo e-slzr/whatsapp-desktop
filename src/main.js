@@ -46,8 +46,21 @@ function triggerDesktopNotification(title, body) {
 
   console.log('[NOTIF DISPARADA]:', notifTitle, notifBody);
 
-  // 1. Notificación nativa de Electron
-  if (Notification.isSupported()) {
+  // En Linux, notify-send se comunica directamente con el demonio de notificaciones de Pantheon / Gala
+  // garantizando el icono oficial de WhatsApp y evitando la notificación duplicada con el icono genérico [i].
+  if (process.platform === 'linux') {
+    const { execFile } = require('child_process');
+    execFile('notify-send', [
+      '-a', 'WhatsApp',
+      '-i', notifIcon,
+      '-u', 'normal',
+      notifTitle,
+      notifBody
+    ], (err) => {
+      if (err) console.error('Error en notify-send:', err);
+    });
+  } else if (Notification.isSupported()) {
+    // En Windows y macOS se utiliza la API nativa de Electron
     try {
       const notif = new Notification({
         title: notifTitle,
@@ -68,20 +81,6 @@ function triggerDesktopNotification(title, body) {
     } catch (err) {
       console.error('Error al mostrar notificación nativa:', err);
     }
-  }
-
-  // 2. Puente directo a notify-send en Linux para elementary OS / Pantheon
-  if (process.platform === 'linux') {
-    const { execFile } = require('child_process');
-    execFile('notify-send', [
-      '-a', 'WhatsApp',
-      '-i', notifIcon,
-      '-u', 'normal',
-      notifTitle,
-      notifBody
-    ], (err) => {
-      if (err) console.error('Error en notify-send:', err);
-    });
   }
 }
 

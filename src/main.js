@@ -39,6 +39,52 @@ function isWhatsAppUrl(rawUrl) {
   }
 }
 
+function triggerDesktopNotification(title, body) {
+  const notifTitle = title || 'WhatsApp';
+  const notifBody = body || 'Nuevo mensaje';
+  const notifIcon = path.join(__dirname, '../assets/icon.png');
+
+  console.log('[NOTIF DISPARADA]:', notifTitle, notifBody);
+
+  // 1. Notificación nativa de Electron
+  if (Notification.isSupported()) {
+    try {
+      const notif = new Notification({
+        title: notifTitle,
+        body: notifBody,
+        icon: notifIcon,
+        silent: false
+      });
+
+      notif.on('click', () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      });
+
+      notif.show();
+    } catch (err) {
+      console.error('Error al mostrar notificación nativa:', err);
+    }
+  }
+
+  // 2. Puente directo a notify-send en Linux para elementary OS / Pantheon
+  if (process.platform === 'linux') {
+    const { execFile } = require('child_process');
+    execFile('notify-send', [
+      '-a', 'WhatsApp',
+      '-i', notifIcon,
+      '-u', 'normal',
+      notifTitle,
+      notifBody
+    ], (err) => {
+      if (err) console.error('Error en notify-send:', err);
+    });
+  }
+}
+
 function loadWindowState() {
   try {
     if (fs.existsSync(STATE_FILE)) {
@@ -205,25 +251,11 @@ function createWindow() {
     mainWindow.webContents.send('update-title', title);
 
     const now = Date.now();
-    if (numericCount > lastUnreadCount && (now - lastNotificationTime) > 4000) {
-      if (!mainWindow.isFocused() || !mainWindow.isVisible()) {
-        if (Notification.isSupported()) {
-          const diff = numericCount - lastUnreadCount;
-          const msg = diff > 1 ? `Tienes ${diff} nuevos mensajes en WhatsApp` : 'Tienes un nuevo mensaje en WhatsApp';
-          const notif = new Notification({
-            title: 'WhatsApp',
-            body: msg,
-            icon: path.join(__dirname, '../assets/icon.png')
-          });
-          notif.on('click', () => {
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.show();
-            mainWindow.focus();
-          });
-          notif.show();
-          lastNotificationTime = now;
-        }
-      }
+    if (numericCount > lastUnreadCount && (now - lastNotificationTime) > 3000) {
+      const diff = numericCount - lastUnreadCount;
+      const msg = diff > 1 ? `Tienes ${diff} nuevos mensajes en WhatsApp` : 'Tienes un nuevo mensaje en WhatsApp';
+      triggerDesktopNotification('WhatsApp', msg);
+      lastNotificationTime = now;
     }
     lastUnreadCount = numericCount;
   });
@@ -287,47 +319,7 @@ ipcMain.on('window-resized', (_event, { width, height }) => {
 ipcMain.on('whatsapp-notification', (_event, { title, options }) => {
   const notifTitle = title || 'WhatsApp';
   const notifBody = (options && options.body) ? options.body : '';
-  const notifIcon = path.join(__dirname, '../assets/icon.png');
-
-  console.log('[NOTIF RECIBIDA DE WHATSAPP]:', notifTitle, notifBody);
-
-  // 1. Notificación nativa de Electron
-  if (Notification.isSupported()) {
-    try {
-      const notif = new Notification({
-        title: notifTitle,
-        body: notifBody,
-        icon: notifIcon,
-        silent: false
-      });
-
-      notif.on('click', () => {
-        if (mainWindow) {
-          if (mainWindow.isMinimized()) mainWindow.restore();
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      });
-
-      notif.show();
-    } catch (err) {
-      console.error('Error al mostrar notificación nativa:', err);
-    }
-  }
-
-  // 2. Puente directo a notify-send en Linux para elementary OS / Pantheon
-  if (process.platform === 'linux') {
-    const { execFile } = require('child_process');
-    execFile('notify-send', [
-      '-a', 'WhatsApp',
-      '-i', notifIcon,
-      '-u', 'normal',
-      notifTitle,
-      notifBody || 'Nuevo mensaje'
-    ], (err) => {
-      if (err) console.error('Error en notify-send:', err);
-    });
-  }
+  triggerDesktopNotification(notifTitle, notifBody);
 });
 
 // Despertar la ventana existente si el usuario intenta abrir otra instancia

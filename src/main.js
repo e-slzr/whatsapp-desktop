@@ -1,6 +1,8 @@
 const { app, BrowserWindow, WebContentsView, ipcMain, shell, nativeTheme, Notification, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { execSync } = require('child_process');
 
 // Permitir la reproducción de alertas de sonido sin necesidad de interacción previa
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -26,6 +28,7 @@ let whatsappView = null;
 let lastUnreadCount = 0;
 let lastNotificationTime = 0;
 let pendingTitleNotification = null;
+let resolvedSystemIcon = undefined;
 
 function isWhatsAppUrl(rawUrl) {
   if (!rawUrl) return false;
@@ -40,49 +43,132 @@ function isWhatsAppUrl(rawUrl) {
   }
 }
 
-function getNotificationIcon() {
-  // 1. Ruta instalada en el sistema de iconos hicolor de Linux
-  const systemIcon = path.join(app.getPath('home'), '.local/share/icons/hicolor/512x512/apps/whatsapp-desktop.png');
-  if (fs.existsSync(systemIcon)) {
-    return systemIcon;
+// Comprueba si alguno de los nombres de icono candidatos existe en el tema del sistema Linux
+function checkSystemIconAvailable(candidateNames) {
+  if (process.platform !== 'linux') return null;
+  const names = Array.isArray(candidateNames) ? candidateNames : [candidateNames];
+
+  const home = os.homedir();
+  const baseDirs = [
+    path.join(home, '.local/share/icons'),
+    path.join(home, '.icons'),
+    '/usr/local/share/icons',
+    '/usr/share/icons',
+    '/usr/share/pixmaps'
+  ];
+
+  const exts = ['.svg', '.png', '.xpm'];
+
+  const themes = new Set();
+  try {
+    const stdout = execSync('gsettings get org.gnome.desktop.interface icon-theme', { encoding: 'utf8', timeout: 500 }).trim();
+    const currentTheme = stdout.replace(/^['\"]|['\"]$/g, '');
+    if (currentTheme) themes.add(currentTheme);
+  } catch (e) {}
+  themes.add('hicolor');
+
+  for (const name of names) {
+    // 1. Comprobar directamente en pixmaps
+    for (const ext of exts) {
+      if (fs.existsSync(path.join('/usr/share/pixmaps', name + ext))) {
+        return name;
+      }
+    }
+
+    // 2. Comprobar en tema activo y tema fallback hicolor
+    for (const base of baseDirs) {
+      if (!fs.existsSync(base)) continue;
+      for (const theme of themes) {
+        const themePath = path.join(base, theme);
+        if (!fs.existsSync(themePath)) continue;
+        const subdirs = [
+          'apps/scalable', 'scalable/apps', 'apps',
+          '512x512/apps', '256x256/apps', '128x128/apps',
+          '64x64/apps', '48x48/apps', '32x32/apps', '24x24/apps', '16x16/apps'
+        ];
+        for (const sub of subdirs) {
+          for (const ext of exts) {
+            if (fs.existsSync(path.join(themePath, sub, name + ext))) {
+              return name;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Comprobar en otros temas instalados en los directorios base
+    for (const base of baseDirs) {
+      if (!fs.existsSync(base)) continue;
+      try {
+        const entries = fs.readdirSync(base, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const themePath = path.join(base, entry.name);
+          const subdirs = ['apps/scalable', 'scalable/apps', 'apps', '512x512/apps', '256x256/apps', '48x48/apps'];
+          for (const sub of subdirs) {
+            for (const ext of exts) {
+              if (fs.existsSync(path.join(themePath, sub, name + ext))) {
+                return name;
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
   }
-  // 2. Ruta física desempaquetada fuera del asar (producción)
+
+  return null;
+}
+
+function getSystemIconName(candidateNames) {
+  if (resolvedSystemIcon !== undefined) return resolvedSystemIcon;
+  resolvedSystemIcon = checkSystemIconAvailable(candidateNames);
+  return resolvedSystemIcon;
+}
+
+// Ruta física al icono por defecto empaquetado con la aplicación
+function getDefaultIconPath() {
   if (process.resourcesPath) {
     const unpackedIcon = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'icon.png');
     if (fs.existsSync(unpackedIcon)) {
       return unpackedIcon;
     }
   }
-  // 3. Ruta en desarrollo local (no empaquetada en asar)
   const devIcon = path.join(__dirname, '../assets/icon.png');
   if (fs.existsSync(devIcon) && !devIcon.includes('app.asar')) {
     return devIcon;
   }
-  // 4. Fallback estándar al icono de assets
   return path.join(__dirname, '../assets/icon.png');
 }
 
 function triggerDesktopNotification(title, body) {
   const notifTitle = title || 'WhatsApp';
   const notifBody = body || 'Nuevo mensaje';
-  const iconPath = getNotificationIcon();
+  const defaultIconPath = getDefaultIconPath();
 
-  console.log('[NOTIF DISPARADA]:', notifTitle, notifBody, 'Icono:', iconPath);
+  console.log('[NOTIF DISPARADA]:', notifTitle, notifBody);
 
   // 1. Notificación nativa de Electron (utiliza DBus / org.freedesktop.Notifications con soporte completo de icono y clic)
   if (Notification.isSupported()) {
     try {
-      // En Linux, al pasar el nombre de tema 'whatsapp-desktop', elementary OS y GNOME
-      // asocian el icono oficial del tema sin tratarlo como imagen externa (evitando el badge de información [i]).
-      // En Windows y macOS se pasa la imagen física cargada.
       let iconOption;
       if (process.platform === 'linux') {
-        iconOption = 'whatsapp-desktop';
-      } else if (fs.existsSync(iconPath)) {
-        const img = nativeImage.createFromPath(iconPath);
-        iconOption = img.isEmpty() ? iconPath : img;
+        const systemIcon = getSystemIconName(['whatsapp-desktop', 'whatsapp']);
+        if (systemIcon) {
+          // Si el tema de iconos del sistema tiene el icono disponible, usamos su nombre de tema para evitar el badge [i]
+          iconOption = systemIcon;
+        } else if (fs.existsSync(defaultIconPath)) {
+          // Si no está disponible en el tema del sistema, usamos el icono por defecto empaquetado
+          const img = nativeImage.createFromPath(defaultIconPath);
+          iconOption = img.isEmpty() ? defaultIconPath : img;
+        } else {
+          iconOption = defaultIconPath;
+        }
+      } else if (fs.existsSync(defaultIconPath)) {
+        const img = nativeImage.createFromPath(defaultIconPath);
+        iconOption = img.isEmpty() ? defaultIconPath : img;
       } else {
-        iconOption = iconPath;
+        iconOption = defaultIconPath;
       }
 
       const notif = new Notification({
@@ -98,6 +184,9 @@ function triggerDesktopNotification(title, body) {
           mainWindow.show();
           mainWindow.focus();
         }
+        if (whatsappView) {
+          whatsappView.webContents.focus();
+        }
       });
 
       notif.show();
@@ -110,9 +199,11 @@ function triggerDesktopNotification(title, body) {
   // 2. Fallback con notify-send para entornos Linux donde Notification.isSupported() falle
   if (process.platform === 'linux') {
     const { execFile } = require('child_process');
+    const systemIcon = getSystemIconName(['whatsapp-desktop', 'whatsapp']);
+    const notifIcon = systemIcon || defaultIconPath;
     execFile('notify-send', [
       '-a', 'whatsapp-desktop',
-      '-i', 'whatsapp-desktop',
+      '-i', notifIcon,
       '-h', 'string:desktop-entry:whatsapp-desktop',
       '-u', 'normal',
       notifTitle,

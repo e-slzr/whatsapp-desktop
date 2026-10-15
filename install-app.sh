@@ -63,4 +63,4 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f -t "$ICON_DIR" 2>/dev/null || true
 fi
 
-echo "¡WhatsApp Desktop v1.0.0 instalado con iconos sincronizados para Plank, GNOME y Ulauncher!"
+echo "¡WhatsApp Desktop v1.0.1 instalado con iconos sincronizados para Plank, GNOME y Ulauncher!"

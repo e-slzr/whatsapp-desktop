@@ -1,7 +1,7 @@
 # WhatsApp Desktop
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v1.0.0-green.svg)](https://github.com/e-slzr/whatsapp-desktop/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0.1-green.svg)](https://github.com/e-slzr/whatsapp-desktop/releases)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20(Wayland%20%2F%20X11)-lightgrey.svg)](https://github.com/e-slzr/whatsapp-desktop)
 
 Cliente de escritorio independiente, ligero, rápido y moderno para WhatsApp Web en Linux (Wayland y X11). Diseñado para ofrecer una experiencia nativa, fluida y con bajo consumo de memoria en distribuciones como elementary OS, Ubuntu, Debian, Fedora y Arch Linux.
@@ -26,7 +26,7 @@ Cliente de escritorio independiente, ligero, rápido y moderno para WhatsApp Web
 
 ---
 
-## Descargas (v1.0.0)
+## Descargas (v1.0.1)
 
 Los paquetes compilados listos para usar se encuentran en la sección de [Releases](https://github.com/e-slzr/whatsapp-desktop/releases):
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, shell, nativeTheme, Notification } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, nativeTheme, Notification, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -39,33 +39,50 @@ function isWhatsAppUrl(rawUrl) {
   }
 }
 
+function getNotificationIcon() {
+  // 1. Ruta instalada en el sistema de iconos hicolor de Linux
+  const systemIcon = path.join(app.getPath('home'), '.local/share/icons/hicolor/512x512/apps/whatsapp-desktop.png');
+  if (fs.existsSync(systemIcon)) {
+    return systemIcon;
+  }
+  // 2. Ruta física desempaquetada fuera del asar (producción)
+  if (process.resourcesPath) {
+    const unpackedIcon = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'icon.png');
+    if (fs.existsSync(unpackedIcon)) {
+      return unpackedIcon;
+    }
+  }
+  // 3. Ruta en desarrollo local (no empaquetada en asar)
+  const devIcon = path.join(__dirname, '../assets/icon.png');
+  if (fs.existsSync(devIcon) && !devIcon.includes('app.asar')) {
+    return devIcon;
+  }
+  // 4. Fallback estándar al icono de assets
+  return path.join(__dirname, '../assets/icon.png');
+}
+
 function triggerDesktopNotification(title, body) {
   const notifTitle = title || 'WhatsApp';
   const notifBody = body || 'Nuevo mensaje';
-  const notifIcon = path.join(__dirname, '../assets/icon.png');
+  const iconPath = getNotificationIcon();
 
-  console.log('[NOTIF DISPARADA]:', notifTitle, notifBody);
+  console.log('[NOTIF DISPARADA]:', notifTitle, notifBody, 'Icono:', iconPath);
 
-  // En Linux, notify-send se comunica directamente con el demonio de notificaciones de Pantheon / Gala
-  // garantizando el icono oficial de WhatsApp y evitando la notificación duplicada con el icono genérico [i].
-  if (process.platform === 'linux') {
-    const { execFile } = require('child_process');
-    execFile('notify-send', [
-      '-a', 'WhatsApp',
-      '-i', notifIcon,
-      '-u', 'normal',
-      notifTitle,
-      notifBody
-    ], (err) => {
-      if (err) console.error('Error en notify-send:', err);
-    });
-  } else if (Notification.isSupported()) {
-    // En Windows y macOS se utiliza la API nativa de Electron
+  // 1. Notificación nativa de Electron (utiliza DBus / org.freedesktop.Notifications con soporte completo de icono y clic)
+  if (Notification.isSupported()) {
     try {
+      let iconOption = iconPath;
+      if (fs.existsSync(iconPath)) {
+        const img = nativeImage.createFromPath(iconPath);
+        if (!img.isEmpty()) {
+          iconOption = img;
+        }
+      }
+
       const notif = new Notification({
         title: notifTitle,
         body: notifBody,
-        icon: notifIcon,
+        icon: iconOption,
         silent: false
       });
 
@@ -78,9 +95,25 @@ function triggerDesktopNotification(title, body) {
       });
 
       notif.show();
+      return;
     } catch (err) {
       console.error('Error al mostrar notificación nativa:', err);
     }
+  }
+
+  // 2. Fallback con notify-send para entornos Linux donde Notification.isSupported() falle
+  if (process.platform === 'linux') {
+    const { execFile } = require('child_process');
+    execFile('notify-send', [
+      '-a', 'whatsapp-desktop',
+      '-i', 'whatsapp-desktop',
+      '-h', 'string:desktop-entry:whatsapp-desktop',
+      '-u', 'normal',
+      notifTitle,
+      notifBody
+    ], (err) => {
+      if (err) console.error('Error en notify-send fallback:', err);
+    });
   }
 }
 
@@ -250,11 +283,13 @@ function createWindow() {
     mainWindow.webContents.send('update-title', title);
 
     const now = Date.now();
-    if (numericCount > lastUnreadCount && (now - lastNotificationTime) > 3000) {
-      const diff = numericCount - lastUnreadCount;
-      const msg = diff > 1 ? `Tienes ${diff} nuevos mensajes en WhatsApp` : 'Tienes un nuevo mensaje en WhatsApp';
-      triggerDesktopNotification('WhatsApp', msg);
-      lastNotificationTime = now;
+    if (numericCount > lastUnreadCount && (now - lastNotificationTime) > 4000) {
+      if (!mainWindow.isFocused() || !mainWindow.isVisible()) {
+        const diff = numericCount - lastUnreadCount;
+        const msg = diff > 1 ? `Tienes ${diff} nuevos mensajes en WhatsApp` : 'Tienes un nuevo mensaje en WhatsApp';
+        lastNotificationTime = now;
+        triggerDesktopNotification('WhatsApp', msg);
+      }
     }
     lastUnreadCount = numericCount;
   });
@@ -318,6 +353,7 @@ ipcMain.on('window-resized', (_event, { width, height }) => {
 ipcMain.on('whatsapp-notification', (_event, { title, options }) => {
   const notifTitle = title || 'WhatsApp';
   const notifBody = (options && options.body) ? options.body : '';
+  lastNotificationTime = Date.now();
   triggerDesktopNotification(notifTitle, notifBody);
 });
 

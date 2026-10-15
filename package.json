@@ -62,6 +62,9 @@
     },
     "directories": {
       "output": "dist"
-    }
+    },
+    "asarUnpack": [
+      "assets/**/*"
+    ]
   }
 }

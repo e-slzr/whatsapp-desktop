@@ -25,6 +25,7 @@ let mainWindow = null;
 let whatsappView = null;
 let lastUnreadCount = 0;
 let lastNotificationTime = 0;
+let pendingTitleNotification = null;
 
 function isWhatsAppUrl(rawUrl) {
   if (!rawUrl) return false;
@@ -71,12 +72,17 @@ function triggerDesktopNotification(title, body) {
   // 1. Notificación nativa de Electron (utiliza DBus / org.freedesktop.Notifications con soporte completo de icono y clic)
   if (Notification.isSupported()) {
     try {
-      let iconOption = iconPath;
-      if (fs.existsSync(iconPath)) {
+      // En Linux, al pasar el nombre de tema 'whatsapp-desktop', elementary OS y GNOME
+      // asocian el icono oficial del tema sin tratarlo como imagen externa (evitando el badge de información [i]).
+      // En Windows y macOS se pasa la imagen física cargada.
+      let iconOption;
+      if (process.platform === 'linux') {
+        iconOption = 'whatsapp-desktop';
+      } else if (fs.existsSync(iconPath)) {
         const img = nativeImage.createFromPath(iconPath);
-        if (!img.isEmpty()) {
-          iconOption = img;
-        }
+        iconOption = img.isEmpty() ? iconPath : img;
+      } else {
+        iconOption = iconPath;
       }
 
       const notif = new Notification({
@@ -283,12 +289,24 @@ function createWindow() {
     mainWindow.webContents.send('update-title', title);
 
     const now = Date.now();
-    if (numericCount > lastUnreadCount && (now - lastNotificationTime) > 4000) {
-      if (!mainWindow.isFocused() || !mainWindow.isVisible()) {
+    if (numericCount > lastUnreadCount) {
+      if (pendingTitleNotification) {
+        clearTimeout(pendingTitleNotification);
+        pendingTitleNotification = null;
+      }
+
+      // Si la ventana no está enfocada ni visible y no ha habido una notificación reciente
+      if ((now - lastNotificationTime) > 4000 && (!mainWindow.isFocused() || !mainWindow.isVisible())) {
         const diff = numericCount - lastUnreadCount;
-        const msg = diff > 1 ? `Tienes ${diff} nuevos mensajes en WhatsApp` : 'Tienes un nuevo mensaje en WhatsApp';
-        lastNotificationTime = now;
-        triggerDesktopNotification('WhatsApp', msg);
+        // Esperar 1.5 segundos para dar prioridad a la notificación rica (con remitente y texto) de WhatsApp Web
+        pendingTitleNotification = setTimeout(() => {
+          pendingTitleNotification = null;
+          if (Date.now() - lastNotificationTime > 4000) {
+            const msg = diff > 1 ? `Tienes ${diff} nuevos mensajes en WhatsApp` : 'Tienes un nuevo mensaje en WhatsApp';
+            lastNotificationTime = Date.now();
+            triggerDesktopNotification('WhatsApp', msg);
+          }
+        }, 1500);
       }
     }
     lastUnreadCount = numericCount;
@@ -351,9 +369,13 @@ ipcMain.on('window-resized', (_event, { width, height }) => {
 
 // Manejador de notificaciones nativas enviadas por WhatsApp Web
 ipcMain.on('whatsapp-notification', (_event, { title, options }) => {
+  lastNotificationTime = Date.now();
+  if (pendingTitleNotification) {
+    clearTimeout(pendingTitleNotification);
+    pendingTitleNotification = null;
+  }
   const notifTitle = title || 'WhatsApp';
   const notifBody = (options && options.body) ? options.body : '';
-  lastNotificationTime = Date.now();
   triggerDesktopNotification(notifTitle, notifBody);
 });
 
